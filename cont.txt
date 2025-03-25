@@ -1,0 +1,290 @@
+const jwt = require("jsonwebtoken");
+const bcrypt = require("bcrypt");
+const User = require("../models/User");
+
+// Function to generate a JWT
+function generateToken(user) {
+  const payload = { id: user._id, email: user.email };
+  return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: "1d" });
+}
+
+// Login function
+async function login(credentials) {
+  const { email, password } = credentials;
+
+  // Find user by email
+  const user = await User.findOne({ email });
+  if (!user) throw new Error("User not found.");
+
+  // Compare passwords
+  const isMatch = await bcrypt.compare(password, user.password);
+  if (!isMatch) throw new Error("Invalid password.");
+
+  // Generate and return JWT
+  const token = generateToken(user);
+  return { token, user };
+}
+
+// Middleware to verify JWT
+function verifyToken(req, res, next) {
+  const token = req.headers.authorization?.split(" ")[1];
+  if (!token) return res.status(401).send("Unauthorized.");
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (err) {
+    res.status(401).send("Invalid or expired token.");
+  }
+}
+
+module.exports = {
+  generateToken,
+  login,
+  verifyToken,
+};
+
+
+
+async function register({ name, email, password }) {
+  // Check if user already exists
+  const existingUser = await User.findOne({ email });
+  if (existingUser) {
+    throw new Error("User already exists.");
+  }
+
+  // Hash the password with bcrypt using 12 salt rounds for higher security
+  const hashedPassword = await bcrypt.hash(password, 12);
+  const user = new User({ name, email, password: hashedPassword });
+  await user.save();
+
+  // Generate JWT for the new user
+  const token = generateToken(user);
+  return { token, user };
+}
+
+
+
+// // src/components/Video/VideoCall.jsx
+// import React, { useEffect, useRef, useState } from "react";
+
+// function VideoCall() {
+//   const localVideoRef = useRef(null);
+//   const [localStream, setLocalStream] = useState(null);
+
+//   useEffect(() => {
+//     async function initWebRTC() {
+//       try {
+//         // Request access to camera and microphone.
+//         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+//         setLocalStream(stream);
+//         if (localVideoRef.current) {
+//           localVideoRef.current.srcObject = stream;
+//         }
+//       } catch (error) {
+//         console.error("Error accessing camera or microphone:", error);
+//       }
+//     }
+//     initWebRTC();
+//   }, []);
+
+//   // Function to end the call by stopping all media tracks and releasing the stream.
+//   const endCall = () => {
+//     if (localStream) {
+//       // Stop all tracks in the stream.
+//       localStream.getTracks().forEach((track) => track.stop());
+//       // Clear the state
+//       setLocalStream(null);
+//       // Remove the video element's source.
+//       if (localVideoRef.current) {
+//         localVideoRef.current.srcObject = null;
+//       }
+//       console.log("Call ended and camera released.");
+//     }
+//   };
+
+//   return (
+//     <div className="p-4">
+//       <h2 className="text-2xl font-bold mb-4">Video Call</h2>
+//       <video
+//         ref={localVideoRef}
+//         autoPlay
+//         muted // Mute local stream to prevent echo.
+//         className="w-full h-auto bg-black rounded shadow mb-4"
+//       />
+//       <button
+//         onClick={endCall}
+//         className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition-colors"
+//       >
+//         End Call
+//       </button>
+//     </div>
+//   );
+// }
+
+// export default VideoCall;
+
+
+// src/components/Video/VideoCall.jsx
+// import React, { useEffect, useRef, useState } from "react";
+// import { io } from "socket.io-client";
+
+// const SOCKET_URL = "http://localhost:5020";
+
+// function VideoCall() {
+//   const localVideoRef = useRef(null);
+//   const remoteVideoRef = useRef(null);
+  
+//   const [localStream, setLocalStream] = useState(null);
+//   const [pc, setPc] = useState(null);
+//   const [socket, setSocket] = useState(null);
+
+//   useEffect(() => {
+//     // Initialize Socket.IO connection
+//     const newSocket = io(SOCKET_URL);
+//     setSocket(newSocket);
+
+//     // Start local media
+//     async function initMedia() {
+//       try {
+//         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+//         setLocalStream(stream);
+//         if (localVideoRef.current) {
+//           localVideoRef.current.srcObject = stream;
+//         }
+//       } catch (error) {
+//         console.error("Error accessing camera/microphone:", error);
+//       }
+//     }
+//     initMedia();
+
+//     // Socket event handling for signaling
+//     newSocket.on("offer", async (offer) => {
+//       console.log("Received offer:", offer);
+//       if (!pc) {
+//         await createPeerConnection(newSocket);
+//       }
+//       await pc.setRemoteDescription(new RTCSessionDescription(offer));
+//       const answer = await pc.createAnswer();
+//       await pc.setLocalDescription(answer);
+//       newSocket.emit("answer", answer);
+//     });
+
+//     newSocket.on("answer", async (answer) => {
+//       console.log("Received answer:", answer);
+//       await pc.setRemoteDescription(new RTCSessionDescription(answer));
+//     });
+
+//     newSocket.on("ice-candidate", async (candidate) => {
+//       console.log("Received ICE candidate:", candidate);
+//       try {
+//         await pc.addIceCandidate(new RTCIceCandidate(candidate));
+//       } catch (error) {
+//         console.error("Error adding received ICE candidate:", error);
+//       }
+//     });
+
+//     return () => newSocket.disconnect();
+//     // eslint-disable-next-line react-hooks/exhaustive-deps
+//   }, []);
+
+//   // Create and setup a new RTCPeerConnection with ICE servers configuration
+//   async function createPeerConnection(socketInstance) {
+//     const configuration = {
+//       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+//     };
+//     const connection = new RTCPeerConnection(configuration);
+//     setPc(connection);
+
+//     // Add local tracks to the connection
+//     if (localStream) {
+//       localStream.getTracks().forEach((track) => {
+//         connection.addTrack(track, localStream);
+//       });
+//     }
+
+//     // Send any ICE candidates to the remote peer
+//     connection.onicecandidate = (event) => {
+//       if (event.candidate) {
+//         console.log("Sending ICE candidate:", event.candidate);
+//         socketInstance.emit("ice-candidate", event.candidate);
+//       }
+//     };
+
+//     // When remote stream arrives, attach it to remote video element
+//     connection.ontrack = (event) => {
+//       console.log("Remote track received:", event.streams[0]);
+//       if (remoteVideoRef.current) {
+//         remoteVideoRef.current.srcObject = event.streams[0];
+//       }
+//     };
+
+//     return connection;
+//   }
+
+//   // Start the call (create offer)
+//   async function startCall() {
+//     // Create RTCPeerConnection if not created
+//     if (!pc) {
+//       await createPeerConnection(socket);
+//     }
+
+//     try {
+//       const offer = await pc.createOffer();
+//       await pc.setLocalDescription(offer);
+//       console.log("Sending offer:", offer);
+//       socket.emit("offer", offer);
+//     } catch (error) {
+//       console.error("Error starting call:", error);
+//     }
+//   }
+
+//   // End the call (stop media tracks and close connection)
+//   function endCall() {
+//     if (localStream) {
+//       localStream.getTracks().forEach((track) => track.stop());
+//       setLocalStream(null);
+//       if (localVideoRef.current) {
+//         localVideoRef.current.srcObject = null;
+//       }
+//     }
+//     if (pc) {
+//       pc.close();
+//       setPc(null);
+//     }
+//     console.log("Call ended."); // Confirm call ended
+//   }
+
+//   return (
+//     <div className="p-4">
+//       <h2 className="text-2xl font-bold mb-4">Video Call</h2>
+//       <div className="flex flex-col md:flex-row gap-4">
+//         <div className="flex-1">
+//           <h3 className="text-xl mb-2">Local Video</h3>
+//           <video ref={localVideoRef} autoPlay muted className="w-full bg-black rounded shadow" />
+//         </div>
+//         <div className="flex-1">
+//           <h3 className="text-xl mb-2">Remote Video</h3>
+//           <video ref={remoteVideoRef} autoPlay className="w-full bg-black rounded shadow" />
+//         </div>
+//       </div>
+//       <div className="mt-4 flex space-x-4">
+//         <button
+//           onClick={startCall}
+//           className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 transition-colors"
+//         >
+//           Start Call
+//         </button>
+//         <button
+//           onClick={endCall}
+//           className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition-colors"
+//         >
+//           End Call
+//         </button>
+//       </div>
+//     </div>
+//   );
+// }
+
+// export default VideoCall;
