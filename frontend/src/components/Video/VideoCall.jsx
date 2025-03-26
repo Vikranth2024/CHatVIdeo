@@ -23,19 +23,21 @@ function VideoCall() {
     newSocket.on("offer", async (offer) => {
       console.log("Received offer:", offer);
       if (!pc) {
+        console.log("Creating PeerConnection for answer...");
         await createPeerConnection(newSocket);
       }
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
+      console.log("Sending answer:", answer);
       newSocket.emit("answer", answer);
     });
-
+    
     newSocket.on("answer", async (answer) => {
       console.log("Received answer:", answer);
       await pc.setRemoteDescription(new RTCSessionDescription(answer));
     });
-
+    
     newSocket.on("ice-candidate", async (candidate) => {
       console.log("Received ICE candidate:", candidate);
       try {
@@ -44,40 +46,45 @@ function VideoCall() {
         console.error("Error adding candidate:", error);
       }
     });
+    
 
     return () => newSocket.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+
   // Create and set up RTCPeerConnection (without automatically capturing media)
   async function createPeerConnection(socketInstance) {
     const configuration = {
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }], // Use a STUN server for connectivity
     };
     const connection = new RTCPeerConnection(configuration);
     setPc(connection);
-
+  
+    console.log("RTCPeerConnection created:", connection);
+  
     // Add local tracks to connection if available
     if (localStream) {
       localStream.getTracks().forEach((track) => connection.addTrack(track, localStream));
     }
-
+  
     connection.onicecandidate = (event) => {
       if (event.candidate) {
         console.log("Sending ICE candidate:", event.candidate);
         socketInstance.emit("ice-candidate", event.candidate);
       }
     };
-
+  
     connection.ontrack = (event) => {
       console.log("Remote track received:", event.streams[0]);
       if (remoteVideoRef.current) {
         remoteVideoRef.current.srcObject = event.streams[0];
       }
     };
-
+  
     return connection;
   }
+  
 
   // Start call: get media if not already captured, then create offer
   async function startCall() {
@@ -91,13 +98,14 @@ function VideoCall() {
         }
       }
       
-      // Create peer connection if it does not exist
+      // Ensure the Peer Connection (pc) is created
       if (!pc) {
-        await createPeerConnection(socket);
+        console.log("Creating PeerConnection...");
+        await createPeerConnection(socket); // Pass the socket instance here
       }
-
-      // Create and send offer
-      const offer = await pc.createOffer();
+  
+      // Create and send the offer
+      const offer = await pc.createOffer(); // This line caused the error earlier
       await pc.setLocalDescription(offer);
       console.log("Sending offer:", offer);
       socket.emit("offer", offer);
@@ -105,6 +113,7 @@ function VideoCall() {
       console.error("Error starting call:", error);
     }
   }
+  
 
   // End call: stop all media tracks and close peer connection
   function endCall() {
