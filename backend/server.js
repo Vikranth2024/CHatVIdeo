@@ -17,6 +17,7 @@ const app = express();
 // Apply security and parsing middlewares
 app.use(helmet());
 app.use(cors());
+app.use(cors({ origin: 'https://verdant-rolypoly-748a33.netlify.app' }));
 app.use(express.json());
 
 // Connect to MongoDB with recommended options
