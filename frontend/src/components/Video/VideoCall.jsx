@@ -1,4 +1,5 @@
 // src/components/Video/VideoCall.jsx
+// frontend/src/components/Video/VideoCall.jsx
 import React, { useState, useRef, useEffect } from "react";
 import { io } from "socket.io-client";
 
