@@ -16,11 +16,12 @@ const app = express();
 
 // Apply security and parsing middlewares
 app.use(helmet());
-app.use(cors());
-app.use(cors({ origin: 'https://verdant-rolypoly-748a33.netlify.app' }));
+// Apply CORS only once with the intended origin.
+// (This will allow your Netlify deployed frontend to access the API.)
+app.use(cors({ origin: "https://verdant-rolypoly-748a33.netlify.app" }));
 app.use(express.json());
 
-// Connect to MongoDB with recommended options
+// Connect to MongoDB with recommended options (avoid deprecation warnings)
 mongoose
   .connect(process.env.URL)
   .then(() => console.log("MongoDB connected"))
@@ -35,7 +36,7 @@ app.get("/", (req, res) => {
 });
 
 // Protected route example using the verifyToken middleware.
-// This route returns a message including the authenticated user's email.
+// Returns a message including the authenticated user's email.
 app.get("/protected", verifyToken, (req, res) => {
   res.json({ message: `Hello, ${req.user.email}! Your route is protected.` });
 });
@@ -45,10 +46,11 @@ app.use((req, res) => {
   res.status(404).json({ error: "Not Found" });
 });
 
-// Create an HTTP server from the Express app for Socket.IO functionality.
+// Create an HTTP server from the Express app; needed for Socket.IO.
 const server = http.createServer(app);
 
-// Initialize Socket.IO with basic CORS settings.
+// Initialize Socket.IO with basic CORS settings (allowing all origins).
+// You can tighten this if needed later.
 const io = socketIo(server, {
   cors: {
     origin: "*",
@@ -56,7 +58,7 @@ const io = socketIo(server, {
   },
 });
 
-// Initialize Socket.IO event handling using an external controller.
+// Initialize Socket.IO event handling using your external controller.
 initializeSocket(io);
 
 // Start the server on the designated port.
