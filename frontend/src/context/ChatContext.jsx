@@ -2,7 +2,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { io } from 'socket.io-client';
 
-const SOCKET_URL = "http://localhost:5020";
+const SOCKET_URL = "https://chatvideo-1.onrender.com";
 const ChatContext = createContext();
 
 // Custom hook for easier context usage

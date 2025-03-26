@@ -1,10 +1,9 @@
-
-
 // src/components/Video/VideoCall.jsx
 import React, { useState, useRef, useEffect } from "react";
 import { io } from "socket.io-client";
 
-const SOCKET_URL = "http://localhost:5020";
+// Update SOCKET_URL to point to the Render backend URL
+const SOCKET_URL = "https://chatvideo-1.onrender.com";
 
 function VideoCall() {
   const localVideoRef = useRef(null);
@@ -156,4 +155,3 @@ function VideoCall() {
 }
 
 export default VideoCall;
- 
