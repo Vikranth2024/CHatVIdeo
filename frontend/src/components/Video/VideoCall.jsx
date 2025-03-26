@@ -87,33 +87,35 @@ function VideoCall() {
   
 
   // Start call: get media if not already captured, then create offer
-  async function startCall() {
-    try {
-      // Initiate media capture only when Start Call is clicked
-      if (!localStream) {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        setLocalStream(stream);
-        if (localVideoRef.current) {
-          localVideoRef.current.srcObject = stream;
-        }
+  // Start call: get media if not already captured, then create offer
+async function startCall() {
+  try {
+    // Initiate media capture only when Start Call is clicked
+    if (!localStream) {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      setLocalStream(stream);
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = stream;
       }
-      
-      // Ensure the Peer Connection (pc) is created
-      if (!pc) {
-        console.log("Creating PeerConnection...");
-        await createPeerConnection(socket); // Pass the socket instance here
-      }
-  
-      // Create and send the offer
-      const offer = await pc.createOffer(); // This line caused the error earlier
-      await pc.setLocalDescription(offer);
-      console.log("Sending offer:", offer);
-      socket.emit("offer", offer);
-    } catch (error) {
-      console.error("Error starting call:", error);
     }
+
+    // Ensure the Peer Connection (pc) is created
+    if (!pc) {
+      console.log("Creating PeerConnection...");
+      const newPc = await createPeerConnection(socket); // Await createPeerConnection
+      setPc(newPc); // Set the newly created RTCPeerConnection
+    }
+
+    // Create and send the offer
+    const offer = await pc.createOffer(); // Ensure pc is initialized here
+    await pc.setLocalDescription(offer);
+    console.log("Sending offer:", offer);
+    socket.emit("offer", offer);
+  } catch (error) {
+    console.error("Error starting call:", error);
   }
-  
+}
+
 
   // End call: stop all media tracks and close peer connection
   function endCall() {
