@@ -1,213 +1,14 @@
-
-
-// // src/components/Video/VideoCall.jsx
-// import React, { useState, useRef, useEffect } from "react";
-// import { io } from "socket.io-client";
-
-// // Use environment variable for SOCKET_URL
-// const SOCKET_URL = "https://chatvideo-1.onrender.com";
-
-// function VideoCall() {
-//   const localVideoRef = useRef(null);
-//   const remoteVideoRef = useRef(null);
-//   const pc = useRef(null); // Use `useRef` to store the PeerConnection
-
-//   const [localStream, setLocalStream] = useState(null);
-//   const [socket, setSocket] = useState(null);
-//   const [isConnected, setIsConnected] = useState(false);
-
-//   useEffect(() => {
-//     const newSocket = io(SOCKET_URL);
-//     setSocket(newSocket);
-
-//     // Handle successful connection
-//     newSocket.on("connect", () => {
-//       console.log("Socket connected. ID:", newSocket.id);
-//       setIsConnected(true);
-//     });
-
-//     // Handle connection errors
-//     newSocket.on("connect_error", (error) => {
-//       console.error("Socket connection error:", error);
-//     });
-
-//     // Handle disconnection
-//     newSocket.on("disconnect", (reason) => {
-//       console.warn("Socket disconnected. Reason:", reason);
-//       setIsConnected(false);
-//     });
-
-//     // Handle offer signaling
-//     newSocket.on("offer", async (offer) => {
-//       console.log("Received offer:", offer);
-//       try {
-//         if (!pc.current) {
-//           console.log("Creating PeerConnection for answer...");
-//           const newPc = await createPeerConnection(newSocket);
-//           pc.current = newPc;
-//         }
-//         await pc.current.setRemoteDescription(new RTCSessionDescription(offer));
-//         const answer = await pc.current.createAnswer();
-//         await pc.current.setLocalDescription(answer);
-//         console.log("Sending answer:", answer);
-//         newSocket.emit("answer", answer);
-//       } catch (error) {
-//         console.error("Error handling offer:", error);
-//       }
-//     });
-
-//     // Handle answer signaling
-//     newSocket.on("answer", async (answer) => {
-//       console.log("Received answer:", answer);
-//       if (pc.current) {
-//         await pc.current.setRemoteDescription(new RTCSessionDescription(answer));
-//       } else {
-//         console.error("PeerConnection is not initialized.");
-//       }
-//     });
-
-//     // Handle ICE candidate signaling
-//     newSocket.on("ice-candidate", async (candidate) => {
-//       console.log("Received ICE candidate:", candidate);
-//       if (pc.current) {
-//         await pc.current.addIceCandidate(new RTCIceCandidate(candidate));
-//       } else {
-//         console.error("PeerConnection is not initialized.");
-//       }
-//     });
-
-//     // Cleanup when component unmounts
-//     return () => {
-//       if (newSocket) {
-//         newSocket.off("connect");
-//         newSocket.off("connect_error");
-//         newSocket.off("disconnect");
-//         newSocket.off("offer");
-//         newSocket.off("answer");
-//         newSocket.off("ice-candidate");
-//         newSocket.disconnect();
-//       }
-//     };
-//   }, []); // Empty dependency array, runs once when component mounts
-
-//   // Create and set up RTCPeerConnection
-//   async function createPeerConnection(socketInstance) {
-//     const configuration = {
-//       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-//     };
-//     const connection = new RTCPeerConnection(configuration);
-
-//     if (localStream) {
-//       localStream.getTracks().forEach((track) => connection.addTrack(track, localStream));
-//     }
-
-//     connection.onicecandidate = (event) => {
-//       if (event.candidate) {
-//         socketInstance.emit("ice-candidate", event.candidate);
-//       }
-//     };
-
-//     connection.ontrack = (event) => {
-//       if (remoteVideoRef.current) {
-//         remoteVideoRef.current.srcObject = event.streams[0];
-//       }
-//     };
-
-//     return connection;
-//   }
-
-//   // Start call: get media if not already captured, then create offer
-//   async function startCall() {
-//     try {
-//       if (!localStream) {
-//         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-//         setLocalStream(stream);
-//         if (localVideoRef.current) {
-//           localVideoRef.current.srcObject = stream;
-//         }
-//       }
-
-//       if (!pc.current) {
-//         const newPc = await createPeerConnection(socket);
-//         pc.current = newPc;
-//       }
-
-//       const offer = await pc.current.createOffer();
-//       await pc.current.setLocalDescription(offer);
-//       socket.emit("offer", offer);
-//     } catch (error) {
-//       console.error("Error starting call:", error);
-//     }
-//   }
-
-//   // End call: stop all media tracks and close peer connection
-//   function endCall() {
-//     if (localStream) {
-//       localStream.getTracks().forEach((track) => track.stop());
-//       setLocalStream(null);
-//       if (localVideoRef.current) {
-//         localVideoRef.current.srcObject = null;
-//       }
-//     }
-//     if (pc.current) {
-//       pc.current.close();
-//       pc.current = null;
-//     }
-//     if (socket) {
-//       socket.disconnect();
-//       setSocket(null);
-//     }
-//     console.log("Call ended and resources cleaned up.");
-//   }
-
-//   return (
-//     <div className="p-4">
-//       <h2 className="text-2xl font-bold mb-4">Video Call</h2>
-
-//       <div className="flex flex-col md:flex-row gap-4">
-//         <div className="flex-1">
-//           <h3 className="text-xl mb-2">Local Video</h3>
-//           <video ref={localVideoRef} autoPlay muted className="w-full bg-black rounded shadow" />
-//         </div>
-//         <div className="flex-1">
-//           <h3 className="text-xl mb-2">Remote Video</h3>
-//           <video ref={remoteVideoRef} autoPlay className="w-full bg-black rounded shadow" />
-//         </div>
-//       </div>
-
-//       <div className="mt-4 flex space-x-4">
-//         <button
-//           onClick={startCall}
-//           className={`bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 transition-colors ${!isConnected ? 'opacity-50 cursor-not-allowed' : ''}`}
-//           disabled={!isConnected}
-//         >
-//           Start Call
-//         </button>
-//         <button
-//           onClick={endCall}
-//           className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition-colors"
-//         >
-//           End Call
-//         </button>
-//       </div>
-//     </div>
-//   );
-// }
-
-// export default VideoCall;
-
-
 // src/components/Video/VideoCall.jsx
 import React, { useState, useRef, useEffect } from "react";
 import { io } from "socket.io-client";
 
-// Update SOCKET_URL to your deployed backend URL.
+// Update SOCKET_URL to point to your deployed backend URL.
 const SOCKET_URL = "https://chatvideo-1.onrender.com";
 
 function VideoCall() {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
-  const pc = useRef(null); // Use ref for the peer connection
+  const pc = useRef(null); // Store the RTCPeerConnection in a ref
 
   const [localStream, setLocalStream] = useState(null);
   const [socket, setSocket] = useState(null);
@@ -232,16 +33,15 @@ function VideoCall() {
       setIsConnected(false);
     });
 
-    // Handle receiving an offer
+    // Handle offer signaling
     newSocket.on("offer", async (offer) => {
       console.log("Received offer:", offer);
       try {
         if (!pc.current) {
-          console.log("PeerConnection not initialized; creating one for answering.");
-          const newPc = await createPeerConnection(newSocket);
+          console.log("PeerConnection is null; creating new PeerConnection for answer...");
+          const newPc = await createPeerConnection(newSocket, localStream);
           pc.current = newPc;
         }
-        // Set remote description from the offer
         await pc.current.setRemoteDescription(new RTCSessionDescription(offer));
         console.log("Remote description set from offer.");
         const answer = await pc.current.createAnswer();
@@ -253,7 +53,7 @@ function VideoCall() {
       }
     });
 
-    // Handle receiving an answer
+    // Handle answer signaling
     newSocket.on("answer", async (answer) => {
       console.log("Received answer:", answer);
       if (pc.current) {
@@ -268,7 +68,7 @@ function VideoCall() {
       }
     });
 
-    // Handle receiving ICE candidates
+    // Handle ICE candidate signaling
     newSocket.on("ice-candidate", async (candidate) => {
       console.log("Received ICE candidate:", candidate);
       if (pc.current) {
@@ -293,28 +93,23 @@ function VideoCall() {
       newSocket.off("ice-candidate");
       newSocket.disconnect();
     };
-  }, []);
+  }, []); // Run once on mount
 
-  // Create and set up RTCPeerConnection
-  async function createPeerConnection(socketInstance) {
+  // Create and set up RTCPeerConnection; pass the localStream (if available)
+  async function createPeerConnection(socketInstance, stream) {
     const configuration = {
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     };
     const connection = new RTCPeerConnection(configuration);
+    setTimeout(() => console.log("RTCPeerConnection created:", connection), 0);
 
-    console.log("RTCPeerConnection created:", connection);
-
-    // Log ICE connection state changes
-    connection.oniceconnectionstatechange = () => {
-      console.log("ICE connection state changed:", connection.iceConnectionState);
-    };
-
-    // Add local tracks if available
-    if (localStream) {
+    // Use the passed-in stream (or fallback to state localStream) to add tracks
+    const mediaStream = stream || localStream;
+    if (mediaStream) {
       console.log("Adding local tracks to connection.");
-      localStream.getTracks().forEach((track) => connection.addTrack(track, localStream));
+      mediaStream.getTracks().forEach((track) => connection.addTrack(track, mediaStream));
     } else {
-      console.warn("Local stream not available when creating PeerConnection.");
+      console.warn("No local stream available when creating PeerConnection.");
     }
 
     connection.onicecandidate = (event) => {
@@ -333,16 +128,20 @@ function VideoCall() {
       }
     };
 
+    connection.oniceconnectionstatechange = () => {
+      console.log("ICE connection state changed:", connection.iceConnectionState);
+    };
+
     return connection;
   }
 
-  // Start call: capture local media and create/send offer
+  // Start call: capture local media (if not done) and create/send offer
   async function startCall() {
     try {
-      // If no local stream, get media from user
-      if (!localStream) {
+      let stream = localStream;
+      if (!stream) {
         console.log("Requesting user media (video & audio)...");
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         setLocalStream(stream);
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
@@ -350,10 +149,9 @@ function VideoCall() {
         console.log("Local stream captured:", stream);
       }
 
-      // Ensure PeerConnection is created
       if (!pc.current) {
         console.log("Creating PeerConnection...");
-        const newPc = await createPeerConnection(socket);
+        const newPc = await createPeerConnection(socket, stream);
         pc.current = newPc;
       } else {
         console.log("PeerConnection already exists.");
@@ -372,7 +170,7 @@ function VideoCall() {
     }
   }
 
-  // End call: stop media tracks, close PeerConnection, and disconnect socket (for cleanup)
+  // End call: stop all media tracks, close PeerConnection, and disconnect socket for cleanup
   function endCall() {
     console.log("Ending call...");
     if (localStream) {
@@ -381,7 +179,7 @@ function VideoCall() {
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = null;
       }
-      console.log("Local stream stopped.");
+      console.log("Local stream stopped and cleared.");
     }
     if (pc.current) {
       pc.current.close();
