@@ -1,20 +1,20 @@
-// src/components/Video/VideoCall.jsx
+// frontend/src/components/Video/VideoCall.jsx
 import React, { useState, useRef, useEffect } from "react";
 import { io } from "socket.io-client";
 
-// Update SOCKET_URL to point to your deployed backend URL.
+// Use your deployed backend URL
 const SOCKET_URL = "https://chatvideo-1.onrender.com";
 
 function VideoCall() {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
-  const pc = useRef(null); // PeerConnection stored in a ref
+  const pc = useRef(null); // Store RTCPeerConnection in a ref
 
   const [localStream, setLocalStream] = useState(null);
   const [socket, setSocket] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
 
-  // Initialize Socket.IO on component mount
+  // Initialize Socket.IO on mount
   useEffect(() => {
     const newSocket = io(SOCKET_URL);
     setSocket(newSocket);
@@ -34,27 +34,27 @@ function VideoCall() {
       setIsConnected(false);
     });
 
-    // When receiving an offer, ensure local media is captured then create a PeerConnection.
+    // Handle receiving an offer
     newSocket.on("offer", async (offer) => {
       console.log("Received offer:", offer);
       try {
-        // If no local stream is available on the answering side, request it now.
+        // If there's no local stream on the answering side, request it
         if (!localStream) {
-          console.log("Local stream not captured on answering side. Requesting media...");
+          console.log("Local stream missing on answering side; requesting media...");
           const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
           setLocalStream(stream);
           if (localVideoRef.current) {
             localVideoRef.current.srcObject = stream;
           }
           console.log("Local stream captured on answering side:", stream);
-        }
-        // Create PeerConnection if not already created.
-        if (!pc.current) {
-          console.log("PeerConnection is null; creating new PeerConnection for answer...");
-          const newPc = await createPeerConnection(newSocket);
+          // Create the PeerConnection with the captured stream
+          const newPc = await createPeerConnection(newSocket, stream);
+          pc.current = newPc;
+        } else if (!pc.current) {
+          console.log("PeerConnection is null; creating one using localStream.");
+          const newPc = await createPeerConnection(newSocket, localStream);
           pc.current = newPc;
         }
-        // Set remote description using the received offer.
         await pc.current.setRemoteDescription(new RTCSessionDescription(offer));
         console.log("Remote description set from offer.");
         const answer = await pc.current.createAnswer();
@@ -66,31 +66,37 @@ function VideoCall() {
       }
     });
 
+    // Handle receiving an answer with signaling state check to avoid errors
     newSocket.on("answer", async (answer) => {
       console.log("Received answer:", answer);
-      if (pc.current) {
-        try {
-          await pc.current.setRemoteDescription(new RTCSessionDescription(answer));
-          console.log("Remote description set from answer.");
-        } catch (error) {
-          console.error("Error setting remote description from answer:", error);
-        }
-      } else {
+      if (!pc.current) {
         console.error("PeerConnection is not initialized.");
+        return;
+      }
+      if (pc.current.signalingState !== "have-local-offer") {
+        console.warn("Cannot set remote description from answer; signaling state is", pc.current.signalingState);
+        return;
+      }
+      try {
+        await pc.current.setRemoteDescription(new RTCSessionDescription(answer));
+        console.log("Remote description set from answer.");
+      } catch (error) {
+        console.error("Error setting remote description from answer:", error);
       }
     });
 
+    // Handle ICE candidate signaling
     newSocket.on("ice-candidate", async (candidate) => {
       console.log("Received ICE candidate:", candidate);
-      try {
-        if (pc.current) {
+      if (pc.current) {
+        try {
           await pc.current.addIceCandidate(new RTCIceCandidate(candidate));
           console.log("Added ICE candidate successfully.");
-        } else {
-          console.error("PeerConnection not initialized for ICE candidate.");
+        } catch (error) {
+          console.error("Error adding ICE candidate:", error);
         }
-      } catch (error) {
-        console.error("Error adding ICE candidate:", error);
+      } else {
+        console.error("PeerConnection is not initialized for ICE candidate.");
       }
     });
 
@@ -106,21 +112,23 @@ function VideoCall() {
     };
   }, []);
 
-  // Create and set up an RTCPeerConnection
-  async function createPeerConnection(socketInstance) {
+  // Function to create and configure a new RTCPeerConnection
+  async function createPeerConnection(socketInstance, stream) {
     const configuration = {
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     };
     const connection = new RTCPeerConnection(configuration);
     console.log("RTCPeerConnection created:", connection);
-    setTimeout(() => {
-      console.log("Current ICE connection state:", connection.iceConnectionState);
-    }, 1000);
 
-    // Add local tracks if available
-    if (localStream) {
-      console.log("Adding local tracks to the peer connection.");
-      localStream.getTracks().forEach((track) => connection.addTrack(track, localStream));
+    // Log ICE connection state changes
+    connection.oniceconnectionstatechange = () => {
+      console.log("ICE connection state changed:", connection.iceConnectionState);
+    };
+
+    // Add local tracks to the peer connection if stream is provided
+    if (stream) {
+      console.log("Adding local tracks to peer connection.");
+      stream.getTracks().forEach((track) => connection.addTrack(track, stream));
     } else {
       console.warn("No local stream available when creating PeerConnection.");
     }
@@ -130,10 +138,6 @@ function VideoCall() {
         console.log("Sending ICE candidate:", event.candidate);
         socketInstance.emit("ice-candidate", event.candidate);
       }
-    };
-
-    connection.oniceconnectionstatechange = () => {
-      console.log("ICE connection state changed:", connection.iceConnectionState);
     };
 
     connection.ontrack = (event) => {
@@ -148,7 +152,7 @@ function VideoCall() {
     return connection;
   }
 
-  // Start call: capture local media (if not already captured) and create/send offer
+  // Start call: request local media and create/send offer if needed
   async function startCall() {
     try {
       let stream = localStream;
@@ -163,11 +167,11 @@ function VideoCall() {
       }
 
       if (!pc.current) {
-        console.log("Creating PeerConnection...");
-        const newPc = await createPeerConnection(socket);
+        console.log("Creating PeerConnection using local stream...");
+        const newPc = await createPeerConnection(socket, stream);
         pc.current = newPc;
       } else {
-        console.log("PeerConnection already exists:", pc.current);
+        console.log("PeerConnection already exists.");
       }
 
       if (pc.current) {
@@ -176,14 +180,14 @@ function VideoCall() {
         console.log("Sending offer:", offer);
         socket.emit("offer", offer);
       } else {
-        console.error("PeerConnection is still null after attempting to create it.");
+        console.error("PeerConnection remains null after creation.");
       }
     } catch (error) {
       console.error("Error starting call:", error);
     }
   }
 
-  // End call: stop all media tracks, close PeerConnection, and disconnect socket
+  // End call: stop local media, close PeerConnection, and disconnect socket.
   function endCall() {
     console.log("Ending call...");
     if (localStream) {
