@@ -1,36 +1,39 @@
+
+
+// // src/components/Video/VideoCall.jsx
 // import React, { useState, useRef, useEffect } from "react";
 // import { io } from "socket.io-client";
 
-// // Update SOCKET_URL to point to your deployed backend URL.
+// // Use your deployed backend URL for signaling
 // const SOCKET_URL = "https://chatvideo-1.onrender.com";
 
 // function VideoCall() {
+//   // Refs for video elements and RTCPeerConnection
 //   const localVideoRef = useRef(null);
 //   const remoteVideoRef = useRef(null);
-//   const pc = useRef(null); // Store the RTCPeerConnection in a ref
-//   const iceCandidateQueue = useRef([]); // Queue ICE candidates before PeerConnection is ready
+//   const pc = useRef(null);
 
+//   // State for local stream, socket connection, and UI flags
 //   const [localStream, setLocalStream] = useState(null);
 //   const [socket, setSocket] = useState(null);
 //   const [isConnected, setIsConnected] = useState(false);
+//   const [isAudioMuted, setIsAudioMuted] = useState(false);
+//   const [isVideoDisabled, setIsVideoDisabled] = useState(false);
 
 //   useEffect(() => {
 //     const newSocket = io(SOCKET_URL);
 //     setSocket(newSocket);
 //     console.log("Socket connecting to:", SOCKET_URL);
 
-//     // Handle successful connection
 //     newSocket.on("connect", () => {
 //       console.log("Socket connected. ID:", newSocket.id);
 //       setIsConnected(true);
 //     });
 
-//     // Handle connection errors
 //     newSocket.on("connect_error", (error) => {
 //       console.error("Socket connection error:", error);
 //     });
 
-//     // Handle disconnection
 //     newSocket.on("disconnect", (reason) => {
 //       console.warn("Socket disconnected. Reason:", reason);
 //       setIsConnected(false);
@@ -40,8 +43,20 @@
 //     newSocket.on("offer", async (offer) => {
 //       console.log("Received offer:", offer);
 //       try {
-//         if (!pc.current) {
-//           console.log("PeerConnection is null; creating new PeerConnection for answer...");
+//         // If local stream is not available, request it
+//         if (!localStream) {
+//           console.log("Local stream not captured on answering side; requesting media...");
+//           const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+//           setLocalStream(stream);
+//           if (localVideoRef.current) {
+//             localVideoRef.current.srcObject = stream;
+//           }
+//           console.log("Local stream captured on answering side:", stream);
+//           // Create PeerConnection with the captured stream
+//           const newPc = await createPeerConnection(newSocket, stream);
+//           pc.current = newPc;
+//         } else if (!pc.current) {
+//           console.log("PeerConnection is null; creating one using localStream.");
 //           const newPc = await createPeerConnection(newSocket, localStream);
 //           pc.current = newPc;
 //         }
@@ -56,18 +71,22 @@
 //       }
 //     });
 
-//     // Handle answer signaling
+//     // Handle answer signaling with state check
 //     newSocket.on("answer", async (answer) => {
 //       console.log("Received answer:", answer);
-//       if (pc.current) {
-//         try {
-//           await pc.current.setRemoteDescription(new RTCSessionDescription(answer));
-//           console.log("Remote description set from answer.");
-//         } catch (error) {
-//           console.error("Error setting remote description from answer:", error);
-//         }
-//       } else {
+//       if (!pc.current) {
 //         console.error("PeerConnection is not initialized.");
+//         return;
+//       }
+//       if (pc.current.signalingState !== "have-local-offer") {
+//         console.warn("Cannot set remote description from answer; signaling state is", pc.current.signalingState);
+//         return;
+//       }
+//       try {
+//         await pc.current.setRemoteDescription(new RTCSessionDescription(answer));
+//         console.log("Remote description set from answer.");
+//       } catch (error) {
+//         console.error("Error setting remote description from answer:", error);
 //       }
 //     });
 
@@ -82,8 +101,7 @@
 //           console.error("Error adding ICE candidate:", error);
 //         }
 //       } else {
-//         console.warn("PeerConnection not ready. Queueing ICE candidate.");
-//         iceCandidateQueue.current.push(candidate); // Queue ICE candidate
+//         console.error("PeerConnection is not initialized for ICE candidate.");
 //       }
 //     });
 
@@ -97,9 +115,9 @@
 //       newSocket.off("ice-candidate");
 //       newSocket.disconnect();
 //     };
-//   }, []); // Run once on mount
+//   }, []);
 
-//   // Create and set up RTCPeerConnection; pass the localStream (if available)
+//   // Create and set up RTCPeerConnection with provided stream
 //   async function createPeerConnection(socketInstance, stream) {
 //     const configuration = {
 //       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
@@ -107,11 +125,15 @@
 //     const connection = new RTCPeerConnection(configuration);
 //     console.log("RTCPeerConnection created:", connection);
 
-//     // Use the passed-in stream (or fallback to state localStream) to add tracks
-//     const mediaStream = stream || localStream;
-//     if (mediaStream) {
-//       console.log("Adding local tracks to connection.");
-//       mediaStream.getTracks().forEach((track) => connection.addTrack(track, mediaStream));
+//     // Log ICE connection state changes
+//     connection.oniceconnectionstatechange = () => {
+//       console.log("ICE connection state changed:", connection.iceConnectionState);
+//     };
+
+//     // Add local tracks if available
+//     if (stream) {
+//       console.log("Adding local tracks to peer connection.");
+//       stream.getTracks().forEach((track) => connection.addTrack(track, stream));
 //     } else {
 //       console.warn("No local stream available when creating PeerConnection.");
 //     }
@@ -132,21 +154,30 @@
 //       }
 //     };
 
-//     connection.oniceconnectionstatechange = () => {
-//       console.log("ICE connection state changed:", connection.iceConnectionState);
-//     };
-
-//     // Process queued ICE candidates
-//     while (iceCandidateQueue.current.length > 0) {
-//       const candidate = iceCandidateQueue.current.shift();
-//       await connection.addIceCandidate(new RTCIceCandidate(candidate));
-//       console.log("Queued ICE candidate added.");
-//     }
-
 //     return connection;
 //   }
 
-//   // Start call: capture local media (if not done) and create/send offer
+//   // Toggle audio mute/unmute
+//   function toggleAudio() {
+//     if (!localStream) return;
+//     localStream.getAudioTracks().forEach((track) => {
+//       track.enabled = !track.enabled;
+//     });
+//     setIsAudioMuted(!isAudioMuted);
+//     console.log("Audio muted:", !isAudioMuted);
+//   }
+
+//   // Toggle video enable/disable
+//   function toggleVideo() {
+//     if (!localStream) return;
+//     localStream.getVideoTracks().forEach((track) => {
+//       track.enabled = !track.enabled;
+//     });
+//     setIsVideoDisabled(!isVideoDisabled);
+//     console.log("Video disabled:", !isVideoDisabled);
+//   }
+
+//   // Start call: capture media and create/send an offer.
 //   async function startCall() {
 //     try {
 //       let stream = localStream;
@@ -161,7 +192,7 @@
 //       }
 
 //       if (!pc.current) {
-//         console.log("Creating PeerConnection...");
+//         console.log("Creating PeerConnection using local stream...");
 //         const newPc = await createPeerConnection(socket, stream);
 //         pc.current = newPc;
 //       } else {
@@ -181,7 +212,7 @@
 //     }
 //   }
 
-//   // End call: stop all media tracks, close PeerConnection, and disconnect socket for cleanup
+//   // End call: stop media and close PeerConnection, but keep socket connected.
 //   function endCall() {
 //     console.log("Ending call...");
 //     if (localStream) {
@@ -197,42 +228,45 @@
 //       pc.current = null;
 //       console.log("PeerConnection closed.");
 //     }
-//     if (socket) {
-//       socket.disconnect();
-//       setSocket(null);
-//       console.log("Socket disconnected.");
-//     }
-//     console.log("Call ended and resources cleaned up.");
+//     console.log("Call ended; socket remains connected for re-calling.");
 //   }
 
 //   return (
-//     <div className="p-4">
-//       <h2 className="text-2xl font-bold mb-4">Video Call</h2>
+//     <div className="relative h-screen flex flex-col bg-black">
+//       {/* Remote video fills the screen */}
+//       <video ref={remoteVideoRef} autoPlay className="absolute w-full h-full object-cover" />
 
-//       <div className="flex flex-col md:flex-row gap-4">
-//         <div className="flex-1">
-//           <h3 className="text-xl mb-2">Local Video</h3>
-//           <video ref={localVideoRef} autoPlay muted className="w-full bg-black rounded shadow" />
-//         </div>
-//         <div className="flex-1">
-//           <h3 className="text-xl mb-2">Remote Video</h3>
-//           <video ref={remoteVideoRef} autoPlay className="w-full bg-black rounded shadow" />
-//         </div>
+//       {/* Local video as picture-in-picture in corner */}
+//       <div className="absolute bottom-8 right-8 w-32 h-24 border border-white rounded overflow-hidden shadow-lg">
+//         <video ref={localVideoRef} autoPlay muted className="w-full h-full object-cover" />
 //       </div>
 
-//       <div className="mt-4 flex space-x-4">
+//       {/* Control Bar (styled similar to Google Meet) */}
+//       <div className="relative z-10 mt-auto bg-gray-900 bg-opacity-80 p-4 flex justify-center items-center space-x-6">
 //         <button
-//           onClick={startCall}
-//           className={`bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 transition-colors ${!isConnected ? 'opacity-50 cursor-not-allowed' : ''}`}
-//           disabled={!isConnected}
+//           onClick={toggleAudio}
+//           className="bg-gray-700 hover:bg-gray-600 text-white p-3 rounded-full transition-colors"
 //         >
-//           Start Call
+//           {isAudioMuted ? "Unmute" : "Mute"}
+//         </button>
+//         <button
+//           onClick={toggleVideo}
+//           className="bg-gray-700 hover:bg-gray-600 text-white p-3 rounded-full transition-colors"
+//         >
+//           {isVideoDisabled ? "Enable Video" : "Disable Video"}
 //         </button>
 //         <button
 //           onClick={endCall}
-//           className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition-colors"
+//           className="bg-red-600 hover:bg-red-500 text-white p-3 rounded-full transition-colors"
 //         >
 //           End Call
+//         </button>
+//         <button
+//           onClick={startCall}
+//           className={`bg-green-600 hover:bg-green-500 text-white p-3 rounded-full transition-colors ${!isConnected ? "opacity-50 cursor-not-allowed" : ""}`}
+//           disabled={!isConnected}
+//         >
+//           Start Call
 //         </button>
 //       </div>
 //     </div>
@@ -242,24 +276,28 @@
 // export default VideoCall;
 
 
-
-
 // src/components/Video/VideoCall.jsx
 import React, { useState, useRef, useEffect } from "react";
 import { io } from "socket.io-client";
+import { FiMic, FiMicOff, FiVideo, FiVideoOff, FiPhone, FiPhoneOff } from "react-icons/fi";
 
-// Use your deployed backend URL for signaling
+// Set your deployed Socket.IO backend URL
 const SOCKET_URL = "https://chatvideo-1.onrender.com";
 
 function VideoCall() {
+  // Refs for video elements and peer connection
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
-  const pc = useRef(null); // Store the RTCPeerConnection
+  const pc = useRef(null);
 
+  // State for local media stream, Socket.IO instance, connection status, and control toggles
   const [localStream, setLocalStream] = useState(null);
   const [socket, setSocket] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [isAudioMuted, setIsAudioMuted] = useState(false);
+  const [isVideoDisabled, setIsVideoDisabled] = useState(false);
 
+  // Initialize Socket.IO connection on mount
   useEffect(() => {
     const newSocket = io(SOCKET_URL);
     setSocket(newSocket);
@@ -279,24 +317,23 @@ function VideoCall() {
       setIsConnected(false);
     });
 
-    // Handle an incoming offer 
+    // Handle incoming offer
     newSocket.on("offer", async (offer) => {
       console.log("Received offer:", offer);
       try {
-        // If the answering side doesn't have a local stream, request it now.
+        // If local stream isn't available for answering side, capture it first.
         if (!localStream) {
-          console.log("Local stream not available on answering side; requesting media...");
+          console.log("No local stream on answering side; requesting media...");
           const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
           setLocalStream(stream);
           if (localVideoRef.current) {
             localVideoRef.current.srcObject = stream;
           }
-          console.log("Local stream captured on answering side:", stream);
-          // Create the PeerConnection with the new stream.
+          console.log("Local stream captured for answering side:", stream);
           const newPc = await createPeerConnection(newSocket, stream);
           pc.current = newPc;
         } else if (!pc.current) {
-          console.log("PeerConnection is null; creating one using localStream.");
+          console.log("PeerConnection is null; creating with localStream.");
           const newPc = await createPeerConnection(newSocket, localStream);
           pc.current = newPc;
         }
@@ -311,7 +348,7 @@ function VideoCall() {
       }
     });
 
-    // Handle an incoming answer with a check for signaling state.
+    // Handle incoming answer with signaling state check
     newSocket.on("answer", async (answer) => {
       console.log("Received answer:", answer);
       if (!pc.current) {
@@ -319,7 +356,7 @@ function VideoCall() {
         return;
       }
       if (pc.current.signalingState !== "have-local-offer") {
-        console.warn("Cannot set remote description from answer; signaling state is", pc.current.signalingState);
+        console.warn("Not in a valid state to set remote answer; current state:", pc.current.signalingState);
         return;
       }
       try {
@@ -330,7 +367,7 @@ function VideoCall() {
       }
     });
 
-    // Handle ICE candidate signaling
+    // Handle ICE candidate exchange
     newSocket.on("ice-candidate", async (candidate) => {
       console.log("Received ICE candidate:", candidate);
       if (pc.current) {
@@ -341,7 +378,7 @@ function VideoCall() {
           console.error("Error adding ICE candidate:", error);
         }
       } else {
-        console.error("PeerConnection is not initialized for ICE candidate.");
+        console.error("PeerConnection not initialized for ICE candidate.");
       }
     });
 
@@ -355,9 +392,9 @@ function VideoCall() {
       newSocket.off("ice-candidate");
       newSocket.disconnect();
     };
-  }, []);
+  }, []); // Run once when component mounts
 
-  // Function to create and set up a new RTCPeerConnection with the provided stream
+  // Create and set up an RTCPeerConnection, adding the provided stream's tracks
   async function createPeerConnection(socketInstance, stream) {
     const configuration = {
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
@@ -365,13 +402,13 @@ function VideoCall() {
     const connection = new RTCPeerConnection(configuration);
     console.log("RTCPeerConnection created:", connection);
 
+    // Log ICE connection state changes
     connection.oniceconnectionstatechange = () => {
       console.log("ICE connection state changed:", connection.iceConnectionState);
     };
 
-    // Add local tracks to the connection if the stream is available
     if (stream) {
-      console.log("Adding local tracks to peer connection.");
+      console.log("Adding local tracks to PeerConnection.");
       stream.getTracks().forEach((track) => connection.addTrack(track, stream));
     } else {
       console.warn("No local stream available when creating PeerConnection.");
@@ -396,7 +433,27 @@ function VideoCall() {
     return connection;
   }
 
-  // Start call: capture local media (if not already captured) and create/send offer
+  // Toggle audio mute/unmute
+  function toggleAudio() {
+    if (!localStream) return;
+    localStream.getAudioTracks().forEach((track) => {
+      track.enabled = !track.enabled;
+    });
+    setIsAudioMuted(!isAudioMuted);
+    console.log("Audio muted:", !isAudioMuted);
+  }
+
+  // Toggle video enable/disable
+  function toggleVideo() {
+    if (!localStream) return;
+    localStream.getVideoTracks().forEach((track) => {
+      track.enabled = !track.enabled;
+    });
+    setIsVideoDisabled(!isVideoDisabled);
+    console.log("Video disabled:", !isVideoDisabled);
+  }
+
+  // Start the call; request media if necessary, set up PeerConnection, then create/send offer.
   async function startCall() {
     try {
       let stream = localStream;
@@ -431,7 +488,7 @@ function VideoCall() {
     }
   }
 
-  // End call: stop all media tracks and close the peer connection (do not disconnect the socket)
+  // End the call: stop the local stream and close the PeerConnection.
   function endCall() {
     console.log("Ending call...");
     if (localStream) {
@@ -447,37 +504,48 @@ function VideoCall() {
       pc.current = null;
       console.log("PeerConnection closed.");
     }
-    // Note: We are leaving the socket connection active to allow re-initiation of a call
-    console.log("Call ended. Socket remains connected for re-calling.");
+    console.log("Call ended; socket remains connected for re-calling.");
   }
 
   return (
-    <div className="p-4">
-      <h2 className="text-2xl font-bold mb-4">Video Call</h2>
-      <div className="flex flex-col md:flex-row gap-4">
-        <div className="flex-1">
-          <h3 className="text-xl mb-2">Local Video</h3>
-          <video ref={localVideoRef} autoPlay muted className="w-full bg-black rounded shadow" />
-        </div>
-        <div className="flex-1">
-          <h3 className="text-xl mb-2">Remote Video</h3>
-          <video ref={remoteVideoRef} autoPlay className="w-full bg-black rounded shadow" />
-        </div>
+    <div className="relative h-screen w-screen bg-black">
+      {/* Remote video covers the full screen */}
+      <video ref={remoteVideoRef} autoPlay className="absolute w-full h-full object-cover" />
+
+      {/* Local video preview (picture-in-picture) */}
+      <div className="absolute bottom-28 right-8 w-40 h-28 border-2 border-gray-200 rounded-lg overflow-hidden shadow-lg">
+        <video ref={localVideoRef} autoPlay muted className="w-full h-full object-cover" />
       </div>
-      <div className="mt-4 flex space-x-4">
-        <button
-          onClick={startCall}
-          className={`bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 transition-colors ${!isConnected ? 'opacity-50 cursor-not-allowed' : ''}`}
-          disabled={!isConnected}
-        >
-          Start Call
-        </button>
-        <button
-          onClick={endCall}
-          className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition-colors"
-        >
-          End Call
-        </button>
+
+      {/* Floating control bar */}
+      <div className="absolute bottom-0 left-0 w-full flex justify-center pb-4">
+        <div className="bg-gray-800 bg-opacity-80 rounded-full px-6 py-4 flex items-center space-x-6">
+          <button
+            onClick={toggleAudio}
+            className="text-white hover:text-red-500 transition-colors"
+          >
+            {isAudioMuted ? <FiMicOff size={24} /> : <FiMic size={24} />}
+          </button>
+          <button
+            onClick={toggleVideo}
+            className="text-white hover:text-red-500 transition-colors"
+          >
+            {isVideoDisabled ? <FiVideoOff size={24} /> : <FiVideo size={24} />}
+          </button>
+          <button
+            onClick={endCall}
+            className="bg-red-600 hover:bg-red-500 text-white p-3 rounded-full transition-colors"
+          >
+            <FiPhoneOff size={24} />
+          </button>
+          <button
+            onClick={startCall}
+            className={`bg-green-600 hover:bg-green-500 text-white p-3 rounded-full transition-colors ${!isConnected ? "opacity-50 cursor-not-allowed" : ""}`}
+            disabled={!isConnected}
+          >
+            <FiPhone size={24} />
+          </button>
+        </div>
       </div>
     </div>
   );
